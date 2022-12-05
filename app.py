@@ -20,18 +20,26 @@ app = flask.Flask(__name__)
 app.config["DEBUG"] = True
 
 
-def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_glowna, akt_cena, akt_cena_pln, zak_cena_pln, ex_rate, wart_min, wart_max, wart_min_max_proc, indicator):
+def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_glowna, akt_cena, akt_cena_pln, zak_cena_pln, ex_rate, wart_min, wart_max, wart_min_max_proc, indicator, kurs_zakupu, kurs_zakupu_min_max_proc):
     return f"""
                     <h3><a href="{strona_do_sledzenia}" target="_blank">{nazwa}</a>     {('(x'+str(ilosc_aktywa)+')')} = {format(akt_cena*ex_rate*ilosc_aktywa, '.2f')} PLN
                     <span style="color:{'red' if akt_cena_pln<zak_cena_pln else 'green'}; font-size: 15px">({'-' if akt_cena_pln<zak_cena_pln else '+'} { format(100-(akt_cena_pln/zak_cena_pln)*100,'.2f') if akt_cena_pln<zak_cena_pln else format((akt_cena_pln/zak_cena_pln)*100-100,'.2f') if (zak_cena_pln > 0 and akt_cena_pln > 0) else 0}%)</span><em style="font-size: 15px"> from {zak_cena_pln} PLN</em></h3>
                     <p style="font-size: 10px; transform: translateY(-16px);"><label> TICKER-ISIN: {isin}</label></p>
                     <p>Description: {opis}</p>
-                    <div style="display: flex; flex-direction: row; align-items: center">
+                    <div style="display: flex; flex-direction: row; align-items: start">
+
+                    <label style="font-size: 15px; color: green; font-weight: bold; line-height: 20px">{format(wart_min, '.2f')} {waluta_glowna}</label>
                     
-                    <label style="font-size: 15px; color: green; font-weight: bold;">{format(wart_min, '.2f')} {waluta_glowna}</label>
-                    <div style="width: 100px; height: 20px; background-color:lightgrey; display: block; margin: 0 10px;border: 1px solid grey; border-radius: 5px;overflow: hidden;"><div style="width: 3px; height: 20px; background-color:red; margin-left: {wart_min_max_proc-1.5}px;"></div></div>
-                    <label style="font-size: 15px; color: red; font-weight: bold;">{format(wart_max, '.2f')} {waluta_glowna}</label>
-                    
+                    <div style="display: flex; max-width: 100px; flex-direction: column; justify-content: center; align-items: center; margin: 0 10px;">
+                        <div style="width: 100px; height: 20px; background: linear-gradient(90deg, rgba(17,250,0,1) 0%, rgba(255,239,0,1) 50%, rgba(255,0,0,1) 100%); display: grid; border: 1px solid black; border-radius: 5px;overflow: hidden;">
+                        <div style="width: 2px; height: 20px; background-color:black; margin-left: {wart_min_max_proc-1}px; position: absolute; grid-column: 1; grid-row: 1;"></div>
+                        <div style="width: 2px; height: 20px; background-color:blue; margin-left: {kurs_zakupu_min_max_proc}px; position: absolute; grid-column: 1; grid-row: 1; visibility: {'hidden' if (kurs_zakupu_min_max_proc == 0 or kurs_zakupu_min_max_proc == 100) else 'visible'};"></div>
+                        </div>
+                        <label style="font-size: 15px; color: blue; font-weight: bold; visibility: {'hidden' if (ilosc_aktywa == 0) else 'visible'};">{kurs_zakupu} {waluta_glowna}</label>
+                    </div>
+
+                    <label style="font-size: 15px; color: red; font-weight: bold;line-height: 20px;">{format(wart_max, '.2f')} {waluta_glowna}</label>
+
                     </div>
                     <div>&nbsp;</div>
                     <div>Actual price is <span style="font-weight: bold;">{format(akt_cena, '.2f')} {waluta_glowna} {'='+format(akt_cena*ex_rate, '.2f')+' PLN' if waluta_glowna != 'PLN' else ''}</span> which is <span style="font-size: 15px; color: {"red" if indicator == 'EXPENSIVE' else "green" if indicator == 'CHEAP' else 'black' }; font-weight: bold;">{indicator}</span> <em style="font-size: 10px;">({wart_min_max_proc}%)</em></div>
@@ -48,6 +56,10 @@ def table_row_builder(title, current_balance, invested_money):
                     </td>
                 </tr>
     """
+
+
+def clamp(n, smallest, largest):
+    return max(smallest, min(n, largest))
 
 
 @app.route('/', methods=['GET'])
@@ -113,6 +125,9 @@ def api_all():
                         ETF["max_value"] = float(val.text.strip())
                 ETF["percentage"] = int(
                     (ETF["currnet_price"]-ETF["min_value"])/(ETF["max_value"]-ETF["min_value"])*100)
+                ETF["percentage_zakup"] = clamp(int(
+                    (ETF["sredni_kurs"]-ETF["min_value"])/(ETF["max_value"]-ETF["min_value"])*100), 0, 100)
+
                 ETF["price_indicator"] = 'EXPENSIVE' if ETF["percentage"] > 60 else 'CHEAP' if ETF["percentage"] < 40 else 'NORMAL'
                 ETF["name"] = soup.find(
                     "span", class_="v-ellip").find("span").text.strip()[3:]
@@ -127,7 +142,7 @@ def api_all():
                     print("err")
 
                 etf_info += info_builder(ETF["name"], ETF["isin"], ETF["description"], ETF["strona_do_sledzenia"], ETF["ilosc_aktywa"], ETF["currency"], ETF["currnet_price"],
-                                         current_price, buy_price, ex_rate, ETF["min_value"], ETF["max_value"], ETF["percentage"], ETF["price_indicator"])
+                                         current_price, buy_price, ex_rate, ETF["min_value"], ETF["max_value"], ETF["percentage"], ETF["price_indicator"], ETF["sredni_kurs"], ETF["percentage_zakup"])
             # Shares
             cursor.execute("""CALL `AKTYWA_pobierzWszystkieAkcje`();""")
             db_shares = cursor.fetchall()
@@ -171,6 +186,8 @@ def api_all():
 
                 SHARE["percentage"] = int(
                     (SHARE["currnet_price"]-SHARE["min_value"])/(SHARE["max_value"]-SHARE["min_value"])*100)
+                SHARE["percentage_zakup"] = clamp(int(
+                    (ETF["sredni_kurs"]-ETF["min_value"])/(ETF["max_value"]-ETF["min_value"])*100), 0, 100)
                 SHARE["price_indicator"] = 'EXPENSIVE' if SHARE["percentage"] > 60 else 'CHEAP' if SHARE["percentage"] < 40 else 'NORMAL'
                 try:
                     cursor.execute(
@@ -180,7 +197,7 @@ def api_all():
                     print("err")
 
                 shares_info += info_builder(SHARE["nazwa_aktywa"], SHARE["isin"], SHARE["description"], SHARE["strona_do_sledzenia"], SHARE["ilosc_aktywa"], SHARE["nazwa_waluty"], SHARE["currnet_price"],
-                                            current_price, buy_price, ex_rate, SHARE["min_value"], SHARE["max_value"], SHARE["percentage"], SHARE["price_indicator"])
+                                            current_price, buy_price, ex_rate, SHARE["min_value"], SHARE["max_value"], SHARE["percentage"], SHARE["price_indicator"], SHARE["sredni_kurs"], SHARE["percentage_zakup"])
             # BALANCE SUMARY
 
             current_balance = ETF_current_balance + shares_current_balance
@@ -222,10 +239,10 @@ def api_all():
             </body>
             </html>"""
 
-            message_body = MIMEText(html, 'html')
-            msg.attach(message_body)
-            server.send_message(msg)
-            server.quit()
+            # message_body = MIMEText(html, 'html')
+            # msg.attach(message_body)
+            # server.send_message(msg)
+            # server.quit()
             return current_balance_info + etf_info + shares_info
 
 
