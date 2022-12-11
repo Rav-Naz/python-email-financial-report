@@ -1,14 +1,17 @@
+from email.mime.image import MIMEImage
 import flask
 import requests
 from bs4 import BeautifulSoup
-from flask import jsonify
 import smtplib
 import json
-from email.message import EmailMessage
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 import pymysql
 import os
+import matplotlib.pyplot as plt
+import uuid
+from datetime import datetime
+
 from dotenv import load_dotenv
 load_dotenv()
 
@@ -19,8 +22,21 @@ receivers = [os.environ.get('EMAIL_RECIEVER')]
 app = flask.Flask(__name__)
 app.config["DEBUG"] = True
 
+msg = MIMEMultipart('alternative')
+
 
 def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_glowna, akt_cena, akt_cena_pln, zak_cena_pln, ex_rate, wart_min, wart_max, wart_min_max_proc, indicator, kurs_zakupu, kurs_zakupu_min_max_proc):
+    internalFileName = '%s-%s' % (
+        datetime.now().strftime('%Y%m%d%H%M%S'), uuid.uuid4())
+    try:
+        fp = open(f'images/{nazwa}.png', 'rb')
+        msgImage = MIMEImage(fp.read())
+        fp.close()
+        msgImage.add_header('Content-ID', f'<{internalFileName}>')
+        msg.attach(msgImage)
+    except:
+        print('no image')
+
     return f"""
                     <h3><a href="{strona_do_sledzenia}" target="_blank">{nazwa}</a>     {('(x'+str(ilosc_aktywa)+')')} = {format(akt_cena*ex_rate*ilosc_aktywa, '.2f')} PLN
                     <span style="color:{'red' if akt_cena_pln<zak_cena_pln else 'green'}; font-size: 15px">({'-' if akt_cena_pln<zak_cena_pln else '+'} { format(100-(akt_cena_pln/zak_cena_pln)*100,'.2f') if akt_cena_pln<zak_cena_pln else format((akt_cena_pln/zak_cena_pln)*100-100,'.2f') if (zak_cena_pln > 0 and akt_cena_pln > 0) else 0}%)</span><em style="font-size: 15px"> from {zak_cena_pln} PLN</em></h3>
@@ -29,20 +45,19 @@ def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_gl
                     <div style="display: flex; flex-direction: row; align-items: start">
 
                     <label style="font-size: 15px; color: green; font-weight: bold; line-height: 20px">{format(wart_min, '.2f')} {waluta_glowna}</label>
-                    
+
                     <div style="display: flex; max-width: 100px; flex-direction: column; justify-content: center; align-items: center; margin: 0 10px;">
                         <div style="width: 100px; height: 20px; background: linear-gradient(90deg, rgba(17,250,0,1) 0%, rgba(255,239,0,1) 50%, rgba(255,0,0,1) 100%); display: grid; border: 1px solid black; border-radius: 5px;overflow: hidden;">
                         <div style="width: 2px; height: 20px; background-color:black; margin-left: {wart_min_max_proc-1}px; position: absolute; grid-column: 1; grid-row: 1;"></div>
-                        <div style="width: 2px; height: 20px; background-color:blue; margin-left: {kurs_zakupu_min_max_proc}px; position: absolute; grid-column: 1; grid-row: 1; visibility: {'hidden' if (kurs_zakupu_min_max_proc == 0 or kurs_zakupu_min_max_proc == 100) else 'visible'};"></div>
-                        </div>
-                        <label style="font-size: 15px; color: blue; font-weight: bold; visibility: {'hidden' if (ilosc_aktywa == 0) else 'visible'};">{kurs_zakupu} {waluta_glowna}</label>
+                            </div>
                     </div>
 
                     <label style="font-size: 15px; color: red; font-weight: bold;line-height: 20px;">{format(wart_max, '.2f')} {waluta_glowna}</label>
 
                     </div>
                     <div>&nbsp;</div>
-                    <div>Actual price is <span style="font-weight: bold;">{format(akt_cena, '.2f')} {waluta_glowna} {'='+format(akt_cena*ex_rate, '.2f')+' PLN' if waluta_glowna != 'PLN' else ''}</span> which is <span style="font-size: 15px; color: {"red" if indicator == 'EXPENSIVE' else "green" if indicator == 'CHEAP' else 'black' }; font-weight: bold;">{indicator}</span> <em style="font-size: 10px;">({wart_min_max_proc}%)</em></div>
+                    <div>Actual price is <span style="font-weight: bold;">{format(akt_cena, '.2f')} {waluta_glowna} {'= '+format(akt_cena*ex_rate, '.2f')+' PLN' if waluta_glowna != 'PLN' else ''}</span> which is <span style="font-size: 15px; color: {"red" if indicator == 'EXPENSIVE' else "green" if indicator == 'CHEAP' else 'black' }; font-weight: bold;">{indicator}</span> <em style="font-size: 10px;">({wart_min_max_proc}%)</em></div>
+                    <img src="cid:{internalFileName}">
                     <div>&nbsp;</div><hr/><div>&nbsp;</div>
                 """
 
@@ -62,6 +77,34 @@ def clamp(n, smallest, largest):
     return max(smallest, min(n, largest))
 
 
+def createPlots(data):
+    migawki = json.loads(data['json_list'])
+    y1 = []
+    y2 = []
+    x = []
+    for mig in migawki:
+        x.append(mig['data'])
+        y1.append(mig['wycena'])
+        y2.append(mig['wycena']*mig['kurs_do_pln']
+                  * int(data['ilosc_aktywa']))
+    fig, ax = plt.subplots()
+    ax.plot(x,
+            y1,
+            color="red")
+    ax.set_xlabel("Date", fontsize=14)
+    ax.set_ylabel(f"Price in {migawki[0]['waluta']} for single financial asset",
+                  color="red",
+                  fontsize=14)
+    ax2 = ax.twinx()
+    ax2.plot(x, y2, color="blue")
+    ax2.set_ylabel(f"Overall price in PLN for all assets",
+                   color="blue", fontsize=14)
+    plt.tight_layout()
+    fig.autofmt_xdate()
+    imgName = "images/"+data['nazwa_aktywa']+".png"
+    plt.savefig(imgName)
+
+
 @app.route('/', methods=['GET'])
 def home():
     return "<h1>My ETFs daily check</h1><p>/etf-api/daily-check</p>"
@@ -69,6 +112,8 @@ def home():
 
 @app.route('/etf-api/daily-check', methods=['GET'])
 def api_all():
+    global msg
+    msg = MIMEMultipart('alternative')
     connection = pymysql.connect(host='localhost',
                                  user=os.environ.get('DB_USER'),
                                  password=os.environ.get('DB_USER_PASSWORD'),
@@ -141,6 +186,8 @@ def api_all():
                 except:
                     print("err")
 
+                createPlots(ETF)
+
                 etf_info += info_builder(ETF["name"], ETF["isin"], ETF["description"], ETF["strona_do_sledzenia"], ETF["ilosc_aktywa"], ETF["currency"], ETF["currnet_price"],
                                          current_price, buy_price, ex_rate, ETF["min_value"], ETF["max_value"], ETF["percentage"], ETF["price_indicator"], ETF["sredni_kurs"], ETF["percentage_zakup"])
             # Shares
@@ -196,12 +243,34 @@ def api_all():
                 except:
                     print("err")
 
+                createPlots(SHARE)
+
                 shares_info += info_builder(SHARE["nazwa_aktywa"], SHARE["isin"], SHARE["description"], SHARE["strona_do_sledzenia"], SHARE["ilosc_aktywa"], SHARE["nazwa_waluty"], SHARE["currnet_price"],
                                             current_price, buy_price, ex_rate, SHARE["min_value"], SHARE["max_value"], SHARE["percentage"], SHARE["price_indicator"], SHARE["sredni_kurs"], SHARE["percentage_zakup"])
             # BALANCE SUMARY
-
             current_balance = ETF_current_balance + shares_current_balance
             money_invested = ETF_money_invested + shares_money_invested
+            try:
+                cursor.execute(
+                    f"""CALL MIGAWKI_dodaj('Portfel',{current_balance}, 'PLN', 1);""")
+                connection.commit()
+            except:
+                print("err")
+
+            cursor.execute("""CALL `AKTYWA_pobierzWszystkiePortfele`();""")
+            db_portfele = cursor.fetchall()
+            internalFileName = '%s-%s' % (
+                datetime.now().strftime('%Y%m%d%H%M%S'), uuid.uuid4())
+            createPlots(db_portfele[0])
+            try:
+                fp = open(
+                    f'images/{db_portfele[0]["nazwa_aktywa"]}.png', 'rb')
+                msgImage = MIMEImage(fp.read())
+                fp.close()
+                msgImage.add_header('Content-ID', f'<{internalFileName}>')
+                msg.attach(msgImage)
+            except:
+                print('no image')
             current_balance_info = f"""
             <h2 style="font-weight: normal">
             My current summary balance is:
@@ -220,12 +289,12 @@ def api_all():
                     </td>
                 </tr>
             </table>
+            <img src="cid:{internalFileName}">
             <div>&nbsp;</div><div>&nbsp;</div>
             """
 
             # EMAIL SEND
 
-            msg = MIMEMultipart('alternative')
             msg['Subject'] = 'Today\'s financial report'
             msg['From'] = f'My Financial Notifier<{sender}>'
             msg['To'] = receivers[0]
@@ -239,10 +308,11 @@ def api_all():
             </body>
             </html>"""
 
-            # message_body = MIMEText(html, 'html')
-            # msg.attach(message_body)
-            # server.send_message(msg)
-            # server.quit()
+            message_body = MIMEText(html, 'html')
+            msg.attach(message_body)
+            server.send_message(msg)
+            server.quit()
+            msg = MIMEMultipart('alternative')
             return current_balance_info + etf_info + shares_info
 
 
