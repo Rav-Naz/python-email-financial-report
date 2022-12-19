@@ -10,7 +10,7 @@ import pymysql
 import os
 import matplotlib.pyplot as plt
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -37,12 +37,10 @@ def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_gl
     except:
         print('no image')
 
-    return f"""
-                    <h3><a href="{strona_do_sledzenia}" target="_blank">{nazwa}</a>     {('(x'+str(ilosc_aktywa)+')')} = {format(akt_cena*ex_rate*ilosc_aktywa, '.2f')} PLN
-                    <span style="color:{'red' if akt_cena_pln<zak_cena_pln else 'green'}; font-size: 15px">({'-' if akt_cena_pln<zak_cena_pln else '+'} { format(100-(akt_cena_pln/zak_cena_pln)*100,'.2f') if akt_cena_pln<zak_cena_pln else format((akt_cena_pln/zak_cena_pln)*100-100,'.2f') if (zak_cena_pln > 0 and akt_cena_pln > 0) else 0}%)</span><em style="font-size: 15px"> from {zak_cena_pln} PLN</em></h3>
-                    <p style="font-size: 10px; transform: translateY(-16px);"><label> TICKER-ISIN: {isin}</label></p>
-                    <p>Description: {opis}</p>
-                    <div style="display: flex; flex-direction: row; align-items: start">
+    x = ""
+    if wart_min != wart_max:
+        x = f"""
+        <div style="display: flex; flex-direction: row; align-items: start;">
 
                     <label style="font-size: 15px; color: green; font-weight: bold; line-height: 20px">{format(wart_min, '.2f')} {waluta_glowna}</label>
 
@@ -55,8 +53,17 @@ def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_gl
                     <label style="font-size: 15px; color: red; font-weight: bold;line-height: 20px;">{format(wart_max, '.2f')} {waluta_glowna}</label>
 
                     </div>
+                    
                     <div>&nbsp;</div>
                     <div>Actual price is <span style="font-weight: bold;">{format(akt_cena, '.2f')} {waluta_glowna} {'= '+format(akt_cena*ex_rate, '.2f')+' PLN' if waluta_glowna != 'PLN' else ''}</span> which is <span style="font-size: 15px; color: {"red" if indicator == 'EXPENSIVE' else "green" if indicator == 'CHEAP' else 'black' }; font-weight: bold;">{indicator}</span> <em style="font-size: 10px;">({wart_min_max_proc}%)</em></div>
+                    """
+
+    return f"""
+                    <h3><a href="{strona_do_sledzenia}" target="_blank">{nazwa}</a>     {('(x'+str(ilosc_aktywa)+')')} = {format(akt_cena*ex_rate*ilosc_aktywa, '.2f')} PLN
+                    <span style="color:{'red' if akt_cena_pln<zak_cena_pln else 'green'}; font-size: 15px">({'-' if akt_cena_pln<zak_cena_pln else '+'} { format(100-(akt_cena_pln/zak_cena_pln)*100,'.2f') if akt_cena_pln<zak_cena_pln else format((akt_cena_pln/zak_cena_pln)*100-100,'.2f') if (zak_cena_pln > 0 and akt_cena_pln > 0) else 0}%)</span><em style="font-size: 15px"> from {zak_cena_pln} PLN</em></h3>
+                    <p style="font-size: 10px; transform: translateY(-16px);"><label> TICKER-ISIN: {isin}</label></p>
+                    <p>Description: {opis}</p>
+                    {x}
                     <img src="cid:{internalFileName}">
                     <div>&nbsp;</div><hr/><div>&nbsp;</div>
                 """
@@ -77,7 +84,7 @@ def clamp(n, smallest, largest):
     return max(smallest, min(n, largest))
 
 
-def createPlots(data):
+def createPlots(data, two_axes=True):
     migawki = json.loads(data['json_list'])
     y1 = []
     y2 = []
@@ -85,20 +92,22 @@ def createPlots(data):
     for mig in migawki:
         x.append(mig['data'])
         y1.append(mig['wycena'])
-        y2.append(mig['wycena']*mig['kurs_do_pln']
-                  * int(data['ilosc_aktywa']))
+        if two_axes:
+            y2.append(mig['wycena']*mig['kurs_do_pln']
+                      * int(data['ilosc_aktywa']))
     fig, ax = plt.subplots()
     ax.plot(x,
             y1,
             color="red")
     ax.set_xlabel("Date", fontsize=14)
-    ax.set_ylabel(f"Price in {migawki[0]['waluta']} for single financial asset",
+    ax.set_ylabel(f"Price in {migawki[0]['waluta'] if len(migawki) > 0 else 'PLN'} for single financial asset",
                   color="red",
                   fontsize=14)
-    ax2 = ax.twinx()
-    ax2.plot(x, y2, color="blue")
-    ax2.set_ylabel(f"Overall price in PLN for all assets",
-                   color="blue", fontsize=14)
+    if two_axes:
+        ax2 = ax.twinx()
+        ax2.plot(x, y2, color="blue")
+        ax2.set_ylabel(f"Overall price in PLN for all assets",
+                       color="blue", fontsize=14)
     plt.tight_layout()
     fig.autofmt_xdate()
     imgName = "images/"+data['nazwa_aktywa']+".png"
@@ -197,7 +206,7 @@ def api_all():
             shares_money_invested = 0.0
 
             shares_info = f"""
-                <h2>Shares:</h2><br>
+                 <h2>Shares:</h2><br>
             """
             for SHARE in db_shares:
                 SHARE['ilosc_aktywa'] = int(SHARE['ilosc_aktywa'])
@@ -247,9 +256,130 @@ def api_all():
 
                 shares_info += info_builder(SHARE["nazwa_aktywa"], SHARE["isin"], SHARE["description"], SHARE["strona_do_sledzenia"], SHARE["ilosc_aktywa"], SHARE["nazwa_waluty"], SHARE["currnet_price"],
                                             current_price, buy_price, ex_rate, SHARE["min_value"], SHARE["max_value"], SHARE["percentage"], SHARE["price_indicator"], SHARE["sredni_kurs"], SHARE["percentage_zakup"])
+
+            # Gold
+            cursor.execute("""CALL `AKTYWA_pobierzWszystkieZłota`();""")
+            db_golds = cursor.fetchall()
+            GOLD_current_balance = 0
+            GOLD_money_invested = 0.0
+
+            golds_info = f"""
+                <h2>Golds:</h2><br>
+            """
+            for GOLD in db_golds:
+                GOLD['ilosc_aktywa'] = int(GOLD['ilosc_aktywa'])
+                URL = GOLD['strona_do_sledzenia']
+                last_half_year_gold_prices = json.loads(requests.get(
+                    'https://api.nbp.pl/api/cenyzlota/last/180/?format=json').text)
+                min_value = float('inf')
+                max_value = 0
+                for value in last_half_year_gold_prices:
+                    cena = value['cena']
+                    if min_value > cena:
+                        min_value = cena
+                    elif max_value < cena:
+                        max_value = cena
+                GOLD["min_value"] = min_value * 31.1
+                GOLD["max_value"] = max_value * 31.1
+                GOLD["currnet_price"] = last_half_year_gold_prices[len(
+                    last_half_year_gold_prices)-1:][0]['cena']*31.1
+
+                ex_rate = [
+                    element for element in today_exchanges_rates if element['code'] == ETF["currency"]][0]['mid']
+                current_price = (GOLD["currnet_price"] *
+                                 GOLD["ilosc_aktywa"] * ex_rate)
+                buy_price = GOLD["wycena_w_pln"]
+                GOLD['currency'] = 'PLN'
+                GOLD_current_balance += current_price
+                GOLD_money_invested += buy_price
+                GOLD["percentage"] = int(
+                    (GOLD["currnet_price"]-GOLD["min_value"])/(GOLD["max_value"]-GOLD["min_value"])*100)
+                GOLD["percentage_zakup"] = clamp(int(
+                    (GOLD["sredni_kurs"]-GOLD["min_value"])/(GOLD["max_value"]-GOLD["min_value"])*100), 0, 100)
+
+                GOLD["price_indicator"] = 'EXPENSIVE' if GOLD["percentage"] > 60 else 'CHEAP' if GOLD["percentage"] < 40 else 'NORMAL'
+                GOLD["description"] = ''
+                try:
+                    cursor.execute(
+                        f"""CALL MIGAWKI_dodaj('{GOLD['isin']}', {GOLD['currnet_price']}, '{GOLD["currency"]}', {ex_rate});""")
+                    connection.commit()
+                except:
+                    print("err")
+
+                createPlots(GOLD)
+
+                golds_info += info_builder(GOLD["nazwa_aktywa"], GOLD["isin"], GOLD["description"], GOLD["strona_do_sledzenia"], GOLD["ilosc_aktywa"], GOLD["currency"], GOLD["currnet_price"],
+                                           current_price, buy_price, ex_rate, GOLD["min_value"], GOLD["max_value"], GOLD["percentage"], GOLD["price_indicator"], GOLD["sredni_kurs"], GOLD["percentage_zakup"])
+
+            # Bonds
+            cursor.execute("""CALL `AKTYWA_pobierzWszystkieObligacje`();""")
+            db_bonds = cursor.fetchall()
+            BOND_current_balance = 0
+            BOND_money_invested = 0.0
+
+            bonds_info = f"""
+                <h2>Bonds:</h2><br>
+            """
+            rzymskie = ['I', 'II', 'III', 'IV', 'V', 'VI',
+                        'VII', 'VIII', 'IX', 'X', 'XI', 'XII']
+            for BOND in db_bonds:
+                datetime_object = datetime.strptime(
+                    str(BOND['data_transakcji']), '%Y-%m-%d')
+                today = datetime.today() - timedelta(days=datetime_object.day-1)
+                print(BOND['data_transakcji'])
+                month_in_rzymski = rzymskie[today.month-1]
+
+                BOND['ilosc_aktywa'] = int(BOND['ilosc_aktywa'])
+                URL = BOND['strona_do_sledzenia']
+                BOND["min_value"] = 100
+                BOND["max_value"] = 100
+                try:
+                    page = requests.get(URL)
+                    soup = BeautifulSoup(page.content, "html.parser")
+                    table = soup.find(
+                        lambda tag: tag.name == "p" and str(today.year) == tag.text).parent.parent
+                    column = table.find(
+                        lambda tag: tag.name == "th" and month_in_rzymski == tag.text)
+                    column_index = table.find('thead').find(
+                        'tr').find_all().index(column)
+                    row = table.find('tbody').find_all(
+                        'tr')[today.day-1]
+                    rate = float(row.find_all()[column_index].text)
+                    BOND["description"] = soup.find(
+                        "div", class_="text-content__box wysiwyg")
+                    current_price = (rate + 100)
+                    BOND["currnet_price"] = current_price
+                    curr_price_all = current_price * BOND["ilosc_aktywa"]
+                    ex_rate = 1
+                    buy_price = BOND["wycena_w_pln"]
+                    print(f"start: {buy_price}, now: {current_price}")
+                    BOND['currency'] = 'PLN'
+                    BOND_current_balance += curr_price_all
+                    BOND_money_invested += buy_price
+                    BOND["percentage"] = int(
+                        (BOND["currnet_price"]-100)/100)
+                    BOND["percentage_zakup"] = clamp(int(
+                        (BOND["sredni_kurs"]-100)/(100)), 0, 100)
+                    BOND["price_indicator"] = 'EXPENSIVE' if BOND["percentage"] > 60 else 'CHEAP' if BOND["percentage"] < 40 else 'NORMAL'
+                    try:
+                        cursor.execute(
+                            f"""CALL MIGAWKI_dodaj('{BOND['isin']}', {BOND['currnet_price']}, '{BOND["currency"]}', {ex_rate});""")
+                        connection.commit()
+                    except:
+                        print("err")
+
+                    createPlots(BOND)
+
+                    bonds_info += info_builder(BOND["nazwa_aktywa"], BOND["isin"], BOND["description"], BOND["strona_do_sledzenia"], BOND["ilosc_aktywa"], BOND["currency"], BOND["currnet_price"],
+                                               curr_price_all, buy_price, ex_rate, BOND["min_value"], BOND["max_value"], BOND["percentage"], BOND["price_indicator"], BOND["sredni_kurs"], BOND["percentage_zakup"])
+                except Exception as e:
+                    print(f"Nie można odnaleźć wyniku odsetek: {e}")
+
             # BALANCE SUMARY
-            current_balance = ETF_current_balance + shares_current_balance
-            money_invested = ETF_money_invested + shares_money_invested
+            current_balance = ETF_current_balance + \
+                shares_current_balance + GOLD_current_balance + BOND_current_balance
+            money_invested = ETF_money_invested + shares_money_invested + \
+                GOLD_money_invested + BOND_money_invested
             try:
                 cursor.execute(
                     f"""CALL MIGAWKI_dodaj('Portfel',{current_balance}, 'PLN', 1);""")
@@ -261,7 +391,7 @@ def api_all():
             db_portfele = cursor.fetchall()
             internalFileName = '%s-%s' % (
                 datetime.now().strftime('%Y%m%d%H%M%S'), uuid.uuid4())
-            createPlots(db_portfele[0])
+            createPlots(db_portfele[0], False)
             try:
                 fp = open(
                     f'images/{db_portfele[0]["nazwa_aktywa"]}.png', 'rb')
@@ -282,6 +412,8 @@ def api_all():
                 </tr>
                 {table_row_builder('ETFs', ETF_current_balance, ETF_money_invested)}
                 {table_row_builder('Shares', shares_current_balance, shares_money_invested)}
+                {table_row_builder('Golds', GOLD_current_balance, GOLD_money_invested)}
+                {table_row_builder('Bonds', BOND_current_balance, BOND_money_invested)}
                 <tr>
                     <td style="font-weight: bold; font-size: 30px;line-height: 30px;">SUMMARY:</td>
                     <td style="padding: 0 50px;font-weight: bold; font-size: 30px;line-height: 30px;">
@@ -305,6 +437,8 @@ def api_all():
                 {current_balance_info}
                 {etf_info}
                 {shares_info}
+                {golds_info}
+                {bonds_info}
             </body>
             </html>"""
 
@@ -313,7 +447,7 @@ def api_all():
             server.send_message(msg)
             server.quit()
             msg = MIMEMultipart('alternative')
-            return current_balance_info + etf_info + shares_info
+            return current_balance_info + etf_info + shares_info + bonds_info
 
 
 if __name__ == '__main__':
