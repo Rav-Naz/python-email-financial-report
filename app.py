@@ -54,7 +54,7 @@ def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_gl
                     <label style="font-size: 15px; color: red; font-weight: bold;line-height: 20px;">{format(wart_max, '.2f')} {waluta_glowna}</label>
 
                     </div>
-                    
+
                     <div>&nbsp;</div>
                     <div>Actual price is <span style="font-weight: bold;">{format(akt_cena, '.2f')} {waluta_glowna} {'= '+format(akt_cena*ex_rate, '.2f')+' PLN' if waluta_glowna != 'PLN' else ''}</span> which is <span style="font-size: 15px; color: {"red" if indicator == 'EXPENSIVE' else "green" if indicator == 'CHEAP' else 'black' }; font-weight: bold;">{indicator}</span> <em style="font-size: 10px;">({wart_min_max_proc}%)</em></div>
                     """
@@ -364,8 +364,9 @@ def api_all():
                         bonds_info += f"""
                         <h3 style="color:red; font-weight: bold;">Nie można odnaleźć wyniku odsetek</h3>
                         """
-                    BOND["description"] = soup.find(
-                        "div", class_="text-content__box wysiwyg")
+                    BOND["description"] = None
+                    # BOND["description"] = soup.find(
+                    #     "div", class_="text-content__box wysiwyg")
                     current_price = (rate + 100)
                     BOND["currnet_price"] = current_price
                     curr_price_all = current_price * BOND["ilosc_aktywa"]
