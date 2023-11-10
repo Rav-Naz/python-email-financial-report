@@ -60,7 +60,7 @@ def info_builder(nazwa, isin, opis, strona_do_sledzenia, ilosc_aktywa, waluta_gl
                     """
 
     return f"""
-                    <h3><a href="{strona_do_sledzenia}" target="_blank">{nazwa}</a>     {('(x'+str(ilosc_aktywa)+')')} = {format(akt_cena*ex_rate*ilosc_aktywa, '.2f')} PLN
+                    <h3><a href="{strona_do_sledzenia}" target="_blank">{nazwa}</a>     {('(x'+"%.2f"% round(ilosc_aktywa, 2)+')')} = {format(akt_cena*ex_rate*ilosc_aktywa, '.2f')} PLN
                     <span style="color:{'red' if akt_cena_pln<zak_cena_pln else 'green'}; font-size: 15px">({'-' if akt_cena_pln<zak_cena_pln else '+'} { format(100-(akt_cena_pln/zak_cena_pln)*100,'.2f') if akt_cena_pln<zak_cena_pln else format((akt_cena_pln/zak_cena_pln)*100-100,'.2f') if (zak_cena_pln > 0 and akt_cena_pln > 0) else 0}%)</span><em style="font-size: 15px"> from {zak_cena_pln} PLN</em></h3>
                     <p style="font-size: 10px; transform: translateY(-16px);"><label> TICKER-ISIN: {isin}</label></p>
                     <p>Description: {opis}</p>
@@ -153,32 +153,18 @@ def api_all():
                 <h2>ETFs:</h2><br>
             """
             for ETF in db_etfs:
-                ETF['ilosc_aktywa'] = int(ETF['ilosc_aktywa'])
+                ETF['ilosc_aktywa'] = float(ETF['ilosc_aktywa'])
                 URL = ETF['strona_do_sledzenia']
                 page = requests.get(URL)
                 soup = BeautifulSoup(page.content, "html.parser")
-                prices = soup.find("div", class_="infobox mb-0")
-                val = prices.find("div", class_="val").find_all("span")
-                for idx, val in enumerate(val):
-                    if idx == 0:
-                        ETF["currency"] = val.text.strip()
-                    elif idx == 1:
-                        ETF["currnet_price"] = float(val.text.strip())
-                ex_rate = [
-                    element for element in today_exchanges_rates if element['code'] == ETF["currency"]][0]['mid']
+                ETF["currnet_price"] = float(soup.find("span", class_="mod-ui-data-list__value").text.replace(',',''))
+                ETF["currency"] = URL.split(":")[-1].replace("GBX", "GBP")
+                ex_rate = [element for element in today_exchanges_rates if element['code'] == ETF["currency"]][0]['mid']
                 current_price = (ETF["currnet_price"] *
                                  ETF["ilosc_aktywa"] * ex_rate)
                 buy_price = ETF["wycena_w_pln"]
                 ETF_current_balance += current_price
                 ETF_money_invested += buy_price
-                valchart = prices.find("div", class_="valchart")
-                for idx, val in enumerate(valchart):
-                    if idx == 0:
-                        ETF["min_value"] = float(val.text.strip())
-                    elif idx == 1:
-                        ETF["img_source"] = 'https://www.justetf.com' + val['src']
-                    elif idx == 2:
-                        ETF["max_value"] = float(val.text.strip())
                 ETF["percentage"] = int(
                     (ETF["currnet_price"]-ETF["min_value"])/(ETF["max_value"]-ETF["min_value"])*100)
                 ETF["percentage_zakup"] = clamp(int(
@@ -186,10 +172,8 @@ def api_all():
 
                 ETF["price_indicator"] = 'EXPENSIVE' if ETF["percentage"] > 60 else 'CHEAP' if ETF["percentage"] < 40 else 'NORMAL'
                 ETF["name"] = soup.find(
-                    "span", class_="v-ellip").find("span").text.strip()[3:]
-                # investement_strategy = val.parent.parent.parent.parent
-                ETF["description"] = prices.parent.parent.find_all(
-                    "div", class_="col-sm-6")[1].find("p").text.strip()
+                    "h1", class_="mod-tearsheet-overview__header__name mod-tearsheet-overview__header__name--large").text.strip()
+                ETF["description"] = soup.find_all("div", class_="mod-module__content")[3].find("p").text
                 try:
                     cursor.execute(
                         f"""CALL MIGAWKI_dodaj('{ETF['isin']}', {ETF['currnet_price']}, '{ETF["currency"]}', {ex_rate});""")
@@ -245,7 +229,7 @@ def api_all():
                 buy_price = SHARE["wycena_w_pln"]
                 shares_current_balance += current_price
                 shares_money_invested += buy_price
-                valchart = prices.find("div", class_="valchart")
+                # valchart = prices.find("div", class_="valchart")
 
                 SHARE["percentage"] = int(
                     (SHARE["currnet_price"]-SHARE["min_value"])/(SHARE["max_value"]-SHARE["min_value"])*100)
